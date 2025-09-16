@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StyleLens AI</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        .mirror-frame {
+            background: linear-gradient(45deg, #ffd700, #ffed4e);
+            border-radius: 50%;
+            padding: 15px;
+            margin: 20px auto;
+            width: 200px;
+            height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .mirror-inner {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 50%;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            overflow: hidden;
+        }
+        
+        .upload-area {
+            border: 2px dashed var(--tg-theme-hint-color, #999);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-area:hover {
+            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        .btn {
+            background: var(--tg-theme-button-color, #0088cc);
+            color: var(--tg-theme-button-text-color, #ffffff);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            width: calc(50% - 10px);
+            transition: opacity 0.2s ease;
+        }
+        
+        .btn:hover {
+            opacity: 0.8;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .title {
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        
+        .subtitle {
+            color: var(--tg-theme-hint-color, #999);
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .feedback {
+            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            border-radius: 15px;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 16px;
+            display: none;
+        }
+        
+        .preview-img {
+            max-width: 100%;
+            max-height: 150px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+        
+        .history {
+            text-align: left;
+            margin-top: 30px;
+            padding: 15px;
+            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            border-radius: 10px;
+        }
+        
+        .history-item {
+            padding: 10px 0;
+            border-bottom: 1px solid var(--tg-theme-hint-color, #ddd);
+        }
+        
+        .history-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">🪞 StyleLens AI</h1>
+        <p class="subtitle">Il tuo specchio magico intelligente</p>
+        
+        <div class="mirror-frame">
+            <div class="mirror-inner" id="mirror">
+                👤
+            </div>
+        </div>
+        
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <div>📸 Tocca per caricare la tua foto</div>
+            <input type="file" id="fileInput" class="file-input" accept="image/*" onchange="handleFileSelect(event)">
+        </div>
+        
+        <div class="loading" id="loading">🔄 Analizzando...</div>
+        
+        <button class="btn" id="analyzeBtn" onclick="analyzeStyle()" disabled>✨ Analizza</button>
+        <button class="btn" id="compareBtn" onclick="compareWithYesterday()" disabled>🔄 Confronta</button>
+        
+        <div class="feedback" id="feedback"></div>
+        
+        <div class="history" id="history" style="display: none;">
+            <h3>📊 Storico</h3>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+    <script>
+        // Inizializza Telegram Web App
+        let tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+        
+        let currentImage = null;
+        let currentImageData = null;
+        
+        const positiveComments = [
+            "🔥 Stai benissimo! Questo outfit è perfetto!",
+            "✨ Fantastico! Hai un ottimo gusto!",
+            "👌 Perfetto! Questo look ti dona molto!",
+            "💯 Incredibile! Sei molto elegante!",
+            "⭐ Bellissimo! Questo stile ti si addice perfettamente!"
+        ];
+        
+        const negativeComments = [
+            "🤔 Potresti migliorare... prova con una maglietta gialla!",
+            "💡 Non male, ma ti starebbe meglio qualcosa di più colorato!",
+            "🎨 Questo outfit va bene, ma prova ad aggiungere un accessorio!",
+            "👕 Carino, ma una camicia diversa sarebbe meglio!",
+            "🌈 Bello, ma un po' di colore in più non guasterebbe!"
+        ];
+        
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    currentImage = e.target.result;
+                    currentImageData = file;
+                    
+                    const mirror = document.getElementById('mirror');
+                    mirror.innerHTML = `<img src="${currentImage}" class="preview-img" alt="Your outfit">`;
+                    
+                    // Abilita i pulsanti
+                    document.getElementById('analyzeBtn').disabled = false;
+                    document.getElementById('compareBtn').disabled = false;
+                    
+                    // Vibrazione feedback
+                    tg.HapticFeedback.impactOccurred('light');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        
+        function analyzeStyle() {
+            if (!currentImage) {
+                tg.showAlert('📸 Carica prima una foto!');
+                return;
+            }
+            
+            showLoading(true);
+            const feedback = document.getElementById('feedback');
+            feedback.style.display = 'block';
+            
+            // Simula analisi AI
+            setTimeout(() => {
+                const isPositive = Math.random() > 0.3; // 70% positivo
+                const comments = isPositive ? positiveComments : negativeComments;
+                const randomComment = comments[Math.floor(Math.random() * comments.length)];
+                
+                feedback.innerHTML = randomComment;
+                showLoading(false);
+                
+                // Salva nel cloud storage di Telegram
+                saveToCloudStorage({
+                    date: new Date().toISOString(),
+                    image: currentImage,
+                    feedback: randomComment,
+                    rating: isPositive ? 'positive' : 'negative'
+                });
+                
+                // Vibrazione feedback
+                tg.HapticFeedback.notificationOccurred(isPositive ? 'success' : 'warning');
+                
+                loadHistory();
+            }, 2000);
+        }
+        
+        function compareWithYesterday() {
+            if (!currentImage) {
+                tg.showAlert('📸 Carica prima una foto di oggi!');
+                return;
+            }
+            
+            showLoading(true);
+            const feedback = document.getElementById('feedback');
+            feedback.style.display = 'block';
+            
+            // Recupera dati dal cloud storage
+            getFromCloudStorage('history').then(history => {
+                setTimeout(() => {
+                    if (history && history.length > 0) {
+                        const yesterday = history[history.length - 1];
+                        const isBetter = Math.random() > 0.5;
+                        
+                        const result = isBetter ? 
+                            '📈 Oggi stai meglio di ieri! Ottimo miglioramento!' :
+                            '📉 Ieri stavi meglio... ma non preoccuparti, domani andrà meglio!';
+                        
+                        feedback.innerHTML = result;
+                        tg.HapticFeedback.notificationOccurred(isBetter ? 'success' : 'error');
+                    } else {
+                        feedback.innerHTML = '📅 Non ho foto precedenti per il confronto. Carica più foto nei prossimi giorni!';
+                        tg.HapticFeedback.notificationOccurred('warning');
+                    }
+                    showLoading(false);
+                }, 2000);
+            });
+        }
+        
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+        
+        // Funzioni per il cloud storage di Telegram
+        function saveToCloudStorage(data) {
+            // Recupera storico esistente
+            getFromCloudStorage('history').then(history => {
+                if (!history) history = [];
+                
+                // Aggiungi nuovo elemento
+                history.push(data);
+                
+                // Mantieni solo ultimi 10 elementi
+                if (history.length > 10) {
+                    history = history.slice(-10);
+                }
+                
+                // Salva nel cloud storage
+                tg.CloudStorage.setItem('history', JSON.stringify(history));
+            });
+        }
+        
+        function getFromCloudStorage(key) {
+            return new Promise((resolve) => {
+                tg.CloudStorage.getItem(key, (error, value) => {
+                    if (error) {
+                        console.error('Errore cloud storage:', error);
+                        resolve(null);
+                    } else {
+                        try {
+                            resolve(value ? JSON.parse(value) : null);
+                        } catch (e) {
+                            console.error('Errore parsing JSON:', e);
+                            resolve(null);
+                        }
+                    }
+                });
+            });
+        }
+        
+        function loadHistory() {
+            getFromCloudStorage('history').then(history => {
+                if (history && history.length > 0) {
+                    const historyDiv = document.getElementById('history');
+                    const historyList = document.getElementById('historyList');
+                    
+                    historyList.innerHTML = '';
+                    
+                    history.slice(-5).reverse().forEach((item, index) => {
+                        const date = new Date(item.date).toLocaleDateString('it-IT');
+                        const emoji = item.rating === 'positive' ? '✅' : '⚠️';
+                        
+                        const historyItem = document.createElement('div');
+                        historyItem.className = 'history-item';
+                        historyItem.innerHTML = `
+                            <div>${emoji} ${date}</div>
+                            <div style="font-size: 14px; color: var(--tg-theme-hint-color, #999);">
+                                ${item.feedback.substring(0, 50)}...
+                            </div>
+                        `;
+                        historyList.appendChild(historyItem);
+                    });
+                    
+                    historyDiv.style.display = 'block';
+                }
+            });
+        }
+        
+        // Carica storico all'avvio
+        loadHistory();
+        
+        // Configura il pulsante principale di Telegram
+        tg.MainButton.text = "Chiudi App";
+        tg.MainButton.show();
+        tg.MainButton.onClick(() => {
+            tg.close();
+        });
+    </script>
+</body>
+</html>
+
